@@ -2582,41 +2582,53 @@ function renderHotkeyConfig() {
 // ══════════════════════════════════════════════════════════════
 //  STORAGE (JSONBin.io)
 // ══════════════════════════════════════════════════════════════
-const JSONBIN_KEY = "$2a$10$nZoh/NTU5TfnLHYI2zl0XuU3dOPiG7cyXiJjIUUjLFRhhJsJgj8nW";
+const JSONBIN_KEY = "$2a$10$1EOndwL6ne3ST5/fsDMuNehlBDuy5EsYsaoQtUz3y/pBOr0QOK5xa";
 const JSONBIN_API = "https://api.jsonbin.io/v3/b";
-// Bin-ID: aus URL-Parameter (für Spieler/OBS) oder localStorage (für Host)
+// Key-Version: wenn sich der Key ändert, alte Bin-ID automatisch löschen
+const JSONBIN_KEY_VERSION = "v2";
+if(localStorage.getItem("er-hunt-key-version") !== JSONBIN_KEY_VERSION) {
+  localStorage.removeItem("er-hunt-binid");
+  localStorage.setItem("er-hunt-key-version", JSONBIN_KEY_VERSION);
+}
 const _urlBinId = new URLSearchParams(location.search).get("bin");
 let _binId = _urlBinId || localStorage.getItem("er-hunt-binid") || null;
 
 async function saveState(data) {
-  try {
-    if (!_binId) {
-      // Erstelle neuen Bin
-      const res = await fetch(JSONBIN_API, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Master-Key": JSONBIN_KEY,
-          "X-Bin-Name": "er-hunt-gamestate",
-          "X-Bin-Private": "false"
-        },
-        body: JSON.stringify(data)
-      });
-      const json = await res.json();
-      _binId = json.metadata.id;
-      localStorage.setItem("er-hunt-binid", _binId);
-    } else {
-      // Update bestehenden Bin
-      await fetch(`${JSONBIN_API}/${_binId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Master-Key": JSONBIN_KEY
-        },
-        body: JSON.stringify(data)
-      });
+  if (!_binId) {
+    // Erstelle neuen Bin
+    const res = await fetch(JSONBIN_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Master-Key": JSONBIN_KEY,
+        "X-Bin-Name": "er-hunt-gamestate",
+        "X-Bin-Private": "false"
+      },
+      body: JSON.stringify(data)
+    });
+    if(!res.ok) {
+      const txt = await res.text();
+      throw new Error(`JSONBin POST ${res.status}: ${txt}`);
     }
-  } catch(e) { console.warn("save failed", e); }
+    const json = await res.json();
+    if(!json.metadata || !json.metadata.id) throw new Error("JSONBin: keine Bin-ID in Antwort: " + JSON.stringify(json));
+    _binId = json.metadata.id;
+    localStorage.setItem("er-hunt-binid", _binId);
+  } else {
+    // Update bestehenden Bin
+    const res = await fetch(`${JSONBIN_API}/${_binId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Master-Key": JSONBIN_KEY
+      },
+      body: JSON.stringify(data)
+    });
+    if(!res.ok) {
+      const txt = await res.text();
+      throw new Error(`JSONBin PUT ${res.status}: ${txt}`);
+    }
+  }
 }
 
 async function loadState() {
