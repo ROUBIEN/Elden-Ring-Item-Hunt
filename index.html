@@ -2819,7 +2819,7 @@ function renderSetupForm() {
   const btnRow = el("div",{class:"btn-row"});
   const startBtn = el("button",{class:"btn btn-primary"});
   startBtn.textContent = "Spiel erstellen →";
-  startBtn.addEventListener("click", () => {
+  startBtn.addEventListener("click", async () => {
     // collect
     hostState.playerCount = parseInt(document.getElementById("player-count").value);
     hostState.gameMode = document.getElementById("game-mode")?.value || "shared";
@@ -2837,7 +2837,15 @@ function renderSetupForm() {
     const names = hostState.players.slice(0,hostState.playerCount);
     if(names.some(n=>!n)) { alert("Bitte alle Spielernamen ausfüllen!"); return; }
 
-    createGame(names);
+    startBtn.disabled = true;
+    startBtn.textContent = "Wird erstellt…";
+    try {
+      await createGame(names);
+    } catch(e) {
+      startBtn.disabled = false;
+      startBtn.textContent = "Spiel erstellen →";
+      alert("Fehler beim Erstellen: " + e.message + "\n\nPrüfe deine Internetverbindung und ob der JSONBin-Key noch gültig ist.");
+    }
   });
 
   // Radio toggle: show/hide item count
@@ -2913,8 +2921,15 @@ async function createGame(names) {
     };
   }
 
-  await saveState(gameData);
+  await saveState(stripForSave(gameData));
   renderHost("urls", gameData);
+}
+
+// Hilfsfunktion: fullPool vor dem Speichern entfernen (zu groß für JSONBin)
+function stripForSave(data) {
+  const d = {...data};
+  delete d.fullPool;
+  return d;
 }
 
 function renderUrls(gameData) {
@@ -2968,7 +2983,7 @@ function renderUrls(gameData) {
     const current = await loadState();
     if(!current) return;
     current.status = "running";
-    await saveState(current);
+    await saveState(stripForSave(current));
     renderHost("running", current);
     pollHostState();
   });
@@ -3135,7 +3150,7 @@ function renderHostRunning(data) {
       } else { current.currentIdx++; }
     }
     // skip not applicable for per-player modes (each player manages own progress)
-    await saveState(current);
+    await saveState(stripForSave(current));
     renderHostRunning(current);
   });
 
@@ -3166,7 +3181,7 @@ function renderHostRunning(data) {
     const current = await loadState();
     if(!current) return;
     current.status="finished";
-    await saveState(current);
+    await saveState(stripForSave(current));
     if(hostPollTimer) clearInterval(hostPollTimer);
     renderHostRunning(current);
   });
@@ -3178,15 +3193,16 @@ function renderHostRunning(data) {
 
 
 function reshuffleQueue(data, playerName) {
-  const pool = data.fullPool || data.queue || [];
+  // Rebuild pool from ITEMS (fullPool is not stored in JSONBin)
+  const pool = data.queue || [];
+  const reshuffled = shuffle([...pool]);
   if(data.gameMode === "shared") {
-    data.queue = shuffle([...pool]);
+    data.queue = reshuffled;
     data.currentIdx = 0;
     data.round = (data.round || 1) + 1;
   } else {
-    // Per-player reshuffle
     const ps = data.playerStates[playerName];
-    ps.queue = shuffle([...pool]);
+    ps.queue = shuffle([...ps.queue]);
     ps.currentIdx = 0;
     ps.round = (ps.round || 1) + 1;
     ps.finished = false;
@@ -3224,7 +3240,7 @@ async function markFoundHost(playerName) {
     } else { ps.currentIdx++; }
   }
 
-  await saveState(data);
+  await saveState(stripForSave(data));
   renderHostRunning(data);
 }
 
@@ -3472,7 +3488,7 @@ async function handlePlayerFound(playerName) {
     } else { ps.currentIdx++; }
   }
 
-  await saveState(data);
+  await saveState(stripForSave(data));
   foundDisabled = false;
   renderPlayerView(playerName);
 }
