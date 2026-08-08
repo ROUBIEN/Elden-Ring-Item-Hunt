@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Elden Ring – Item Hunt</title>
+<title>ROUBIEN's Elden Ring – Item Hunt</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
 
@@ -2675,72 +2675,13 @@ function el(tag,attrs={},children=[]) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  PASSWORTSCHUTZ
-// ══════════════════════════════════════════════════════════════
-// ── Passwort hier ändern: ──
-const SITE_PASSWORD = "robinistderbeste";
-// ──────────────────────────
-
-const PW_STORAGE_KEY = "er-hunt-pw-ok";
-
-function isUnlocked() {
-  return sessionStorage.getItem(PW_STORAGE_KEY) === SITE_PASSWORD;
-}
-
-function showPasswordGate(onUnlock) {
-  const app = document.getElementById("app");
-  app.innerHTML = "";
-  const page = el("div",{class:"page"});
-  page.appendChild(renderLogo());
-
-  const card = el("div",{class:"card"});
-  card.style.maxWidth = "360px";
-  card.style.margin = "2rem auto 0";
-  card.innerHTML = `
-    <div class="card-title">Zugang</div>
-    <div class="field">
-      <label>Passwort</label>
-      <input type="password" id="pw-input" placeholder="Passwort eingeben" autocomplete="off" />
-    </div>
-    <div id="pw-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px">Falsches Passwort</div>
-  `;
-  page.appendChild(card);
-
-  const btnRow = el("div",{class:"btn-row"});
-  const submitBtn = el("button",{class:"btn btn-primary"});
-  submitBtn.textContent = "Eintreten";
-  btnRow.appendChild(submitBtn);
-  page.appendChild(btnRow);
-
-  app.appendChild(page);
-
-  const input = document.getElementById("pw-input");
-  const errorMsg = document.getElementById("pw-error");
-  input.focus();
-
-  const tryUnlock = () => {
-    if(input.value === SITE_PASSWORD) {
-      sessionStorage.setItem(PW_STORAGE_KEY, SITE_PASSWORD);
-      onUnlock();
-    } else {
-      errorMsg.style.display = "block";
-      input.value = "";
-      input.focus();
-    }
-  };
-
-  submitBtn.addEventListener("click", tryUnlock);
-  input.addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
-}
-
-// ══════════════════════════════════════════════════════════════
 //  ROUTER
 // ══════════════════════════════════════════════════════════════
 const {mode, player} = getParams();
 
-function startApp() {
+document.addEventListener("DOMContentLoaded", () => {
   loadDesign();
-  if(mode==="obs") { document.body.classList.add("obs-mode"); initObs(); }
+  if(mode==="obs") { document.body.classList.add("obs-mode"); initObs(); return; }
   else if(mode==="player") {
     const pname = decodeURIComponent(player);
     renderDesignPanel();
@@ -2749,17 +2690,6 @@ function startApp() {
   } else {
     renderDesignPanel();
     initHost();
-  }
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  // OBS-Quelle braucht kein Passwort (läuft nur lokal in OBS, nicht öffentlich sichtbar)
-  if(mode === "obs") { document.body.classList.add("obs-mode"); initObs(); return; }
-
-  if(isUnlocked()) {
-    startApp();
-  } else {
-    showPasswordGate(startApp);
   }
 });
 
@@ -2800,7 +2730,7 @@ function renderHost(view, gameData=null) {
 
 function renderLogo() {
   const d = el("div",{class:"logo"});
-  d.innerHTML = `<div class="logo-title">The Lands Between</div><div class="logo-sub">Item Hunt</div>`;
+  d.innerHTML = `<div class="logo-title">ROUBIEN presents</div><div class="logo-sub">Elden Ring · Item Hunt</div>`;
   return d;
 }
 
