@@ -1104,7 +1104,7 @@ async function loadState() {
       showError(`Verbindungsfehler beim Laden (${res.status}).`);
       return null;
     }
-    return await res.json();
+    return restoreQueues(await res.json());
   } catch(e) {
     showError("Netzwerkfehler: " + (e.message || "Keine Verbindung."));
     return null;
@@ -1410,9 +1410,38 @@ async function createGame(names) {
 
 // Hilfsfunktion: fullPool vor dem Speichern entfernen (zu groß für JSONBin)
 function stripForSave(data) {
-  const d = {...data};
+  const d = JSON.parse(JSON.stringify(data)); // deep copy
   delete d.fullPool;
+  // Strip queue item objects down to just names (lightweight)
+  if(d.queue) {
+    d.queue = d.queue.map(it => it.name);
+  }
+  if(d.playerStates) {
+    for(const p of Object.keys(d.playerStates)) {
+      if(d.playerStates[p].queue) {
+        d.playerStates[p].queue = d.playerStates[p].queue.map(it => it.name);
+      }
+    }
+  }
   return d;
+}
+
+// Restore full item objects from name-only arrays after loading
+function restoreQueues(data) {
+  if(!data) return data;
+  const nameMap = new Map(ITEMS.map(it => [it.name, it]));
+  if(data.queue && data.queue.length > 0 && typeof data.queue[0] === 'string') {
+    data.queue = data.queue.map(n => nameMap.get(n)).filter(Boolean);
+  }
+  if(data.playerStates) {
+    for(const p of Object.keys(data.playerStates)) {
+      const ps = data.playerStates[p];
+      if(ps.queue && ps.queue.length > 0 && typeof ps.queue[0] === 'string') {
+        ps.queue = ps.queue.map(n => nameMap.get(n)).filter(Boolean);
+      }
+    }
+  }
+  return data;
 }
 
 function renderUrls(gameData) {
@@ -1561,7 +1590,7 @@ function renderHostRunning(data) {
     disp.appendChild(imgWrap);
     disp.innerHTML += `<div class="item-cat-badge">${cur.cat}</div>
       <div class="item-name-de">${cur.name}</div>
-      <div class="item-name-en">${cur.en||""}</div>
+      <div class="item-name-en"></div>
       <div class="item-hint"><div class="item-hint-label">Fundort</div>${cur.hint}</div>`;
     disp.insertBefore(imgWrap, disp.firstChild);
     itemCard.appendChild(disp);
@@ -1699,7 +1728,7 @@ function reshuffleQueue(data, playerName) {
   }
 }
 
-function allSpielerFinished(data) {
+function allPlayersFinished(data) {
   if(!data.playerStates) return false;
   return data.players.every(p => data.playerStates[p] && data.playerStates[p].finished);
 }
@@ -1726,7 +1755,7 @@ async function markFoundHost(playerName) {
     data.history.unshift({item:cur.name, player:playerName, itemIdx:ps.currentIdx});
     if(ps.currentIdx >= ps.queue.length-1) {
       if(data.endless) reshuffleQueue(data, playerName);
-      else { ps.finished = true; if(allSpielerFinished(data)) data.status="finished"; }
+      else { ps.finished = true; if(allPlayersFinished(data)) data.status="finished"; }
     } else { ps.currentIdx++; }
   }
 
@@ -1777,7 +1806,7 @@ async function renderObs() {
       <div class="obs-img"><img src="${itemImgUrl(cur)}" alt="${cur.name}" onerror="this.parentNode.innerHTML='<span style=font-size:32px;color:var(--text-muted)>?</span>'" /></div>
       <div style="flex:1">
         <div class="obs-item-name">${cur.name}</div>
-        <div class="obs-item-en">${cur.en}</div>
+        <div class="obs-item-en"></div>
         <div class="obs-item-cat">${cur.cat}</div>
       </div>
     </div>
@@ -1928,7 +1957,7 @@ async function renderPlayerView(playerName) {
   disp.appendChild(nameD);
 
   const nameE = el("div",{class:"item-name-en"});
-  nameE.textContent=cur.en;
+  nameE.textContent="";
   disp.appendChild(nameE);
 
   const hintD = el("div",{class:"item-hint"});
@@ -2000,7 +2029,7 @@ async function handlePlayerFound(playerName) {
     data.history.unshift({item:cur.name, player:playerName, itemIdx:ps.currentIdx});
     if(ps.currentIdx >= ps.queue.length-1) {
       if(data.endless) reshuffleQueue(data, playerName);
-      else { ps.finished=true; if(allSpielerFinished(data)) data.status="finished"; }
+      else { ps.finished=true; if(allPlayersFinished(data)) data.status="finished"; }
     } else { ps.currentIdx++; }
   }
 
