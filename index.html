@@ -568,11 +568,37 @@
     color: var(--gold) !important;
     animation: pulse 1s infinite;
   }
+
+  /* ── Fehler-Banner ── */
+  #global-error {
+    display: none;
+    position: fixed;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--red-bg);
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-size: 13px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    z-index: 9999;
+    max-width: 90vw;
+    text-align: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    animation: fadeIn 0.3s ease;
+  }
+  #global-error.success {
+    background: var(--green-bg);
+    border-color: var(--green);
+    color: var(--green);
+  }
 </style>
 </head>
 <body>
 
 <div id="app"></div>
+<div id="global-error"></div>
 
 <script>
 // ══════════════════════════════════════════════════════════════
@@ -961,6 +987,38 @@ function renderHotkeyConfig() {
   return wrap;
 }
 
+
+// ══════════════════════════════════════════════════════════════
+//  FEHLERBEHANDLUNG
+// ══════════════════════════════════════════════════════════════
+let _errorTimer = null;
+
+function showError(msg, durationMs = 6000) {
+  const el = document.getElementById("global-error");
+  if(!el) { console.error("FEHLER:", msg); return; }
+  el.className = "";
+  el.textContent = "⚠ " + msg;
+  el.style.display = "block";
+  clearTimeout(_errorTimer);
+  _errorTimer = setTimeout(() => { el.style.display = "none"; }, durationMs);
+  console.error("FEHLER:", msg);
+}
+
+function showSuccess(msg, durationMs = 3000) {
+  const el = document.getElementById("global-error");
+  if(!el) return;
+  el.className = "success";
+  el.textContent = "✓ " + msg;
+  el.style.display = "block";
+  clearTimeout(_errorTimer);
+  _errorTimer = setTimeout(() => { el.style.display = "none"; }, durationMs);
+}
+
+function hideError() {
+  const el = document.getElementById("global-error");
+  if(el) el.style.display = "none";
+}
+
 // ══════════════════════════════════════════════════════════════
 //  STORAGE (JSONBin.io)
 // ══════════════════════════════════════════════════════════════
@@ -976,40 +1034,51 @@ const _urlBinId = new URLSearchParams(location.search).get("bin");
 let _binId = _urlBinId || localStorage.getItem("er-hunt-binid") || null;
 
 async function saveState(data) {
-  if (!_binId) {
-    // Erstelle neuen Bin
-    const res = await fetch(JSONBIN_API, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Master-Key": JSONBIN_KEY,
-        "X-Bin-Name": "er-hunt-gamestate",
-        "X-Bin-Private": "false"
-      },
-      body: JSON.stringify(data)
-    });
-    if(!res.ok) {
-      const txt = await res.text();
-      throw new Error(`JSONBin POST ${res.status}: ${txt}`);
+  try {
+    if (!_binId) {
+      const res = await fetch(JSONBIN_API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Master-Key": JSONBIN_KEY,
+          "X-Bin-Name": "er-hunt-gamestate",
+          "X-Bin-Private": "false"
+        },
+        body: JSON.stringify(data)
+      });
+      if(!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Spiel konnte nicht gespeichert werden (${res.status}): ${txt}`);
+      }
+      const json = await res.json();
+      if(!json.metadata || !json.metadata.id) {
+        throw new Error("Kein Bin-ID von JSONBin erhalten. Antwort: " + JSON.stringify(json).slice(0,100));
+      }
+      _binId = json.metadata.id;
+      localStorage.setItem("er-hunt-binid", _binId);
+    } else {
+      const res = await fetch(`${JSONBIN_API}/${_binId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Master-Key": JSONBIN_KEY
+        },
+        body: JSON.stringify(data)
+      });
+      if(!res.ok) {
+        const txt = await res.text();
+        // Bin existiert nicht mehr – reset und neu versuchen
+        if(res.status === 404) {
+          _binId = null;
+          localStorage.removeItem("er-hunt-binid");
+          throw new Error("Spielstand nicht gefunden (404). Bitte Spiel neu erstellen.");
+        }
+        throw new Error(`Spielstand konnte nicht aktualisiert werden (${res.status}): ${txt}`);
+      }
     }
-    const json = await res.json();
-    if(!json.metadata || !json.metadata.id) throw new Error("JSONBin: keine Bin-ID in Antwort: " + JSON.stringify(json));
-    _binId = json.metadata.id;
-    localStorage.setItem("er-hunt-binid", _binId);
-  } else {
-    // Update bestehenden Bin
-    const res = await fetch(`${JSONBIN_API}/${_binId}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Master-Key": JSONBIN_KEY
-      },
-      body: JSON.stringify(data)
-    });
-    if(!res.ok) {
-      const txt = await res.text();
-      throw new Error(`JSONBin PUT ${res.status}: ${txt}`);
-    }
+  } catch(e) {
+    showError(e.message || "Unbekannter Speicherfehler");
+    throw e; // re-throw so callers can handle
   }
 }
 
@@ -1022,9 +1091,24 @@ async function loadState() {
         "X-Bin-Meta": "false"
       }
     });
-    if (!res.ok) return null;
+    if(res.status === 401 || res.status === 403) {
+      showError("JSONBin-Zugriff verweigert – API-Key ungültig oder abgelaufen.");
+      return null;
+    }
+    if(res.status === 404) {
+      showError("Spielstand nicht gefunden – bitte Spiel neu erstellen.");
+      _binId = null; localStorage.removeItem("er-hunt-binid");
+      return null;
+    }
+    if(!res.ok) {
+      showError(`Verbindungsfehler beim Laden (${res.status}).`);
+      return null;
+    }
     return await res.json();
-  } catch(e) { return null; }
+  } catch(e) {
+    showError("Netzwerkfehler: " + (e.message || "Keine Verbindung."));
+    return null;
+  }
 }
 
 async function resetBin() {
@@ -1229,7 +1313,7 @@ function renderSetupForm() {
     if(hostState.selectedAreas.length===0) hostState.selectedAreas=["Alle Gebiete"];
 
     const names = hostState.players.slice(0,hostState.playerCount);
-    if(names.some(n=>!n)) { alert("Bitte alle Spielernamen ausfüllen!"); return; }
+    if(names.some(n=>!n)) { showError("Bitte alle Spielernamen ausfüllen!"); return; return; }
 
     startBtn.disabled = true;
     startBtn.textContent = "Wird erstellt…";
@@ -1238,7 +1322,7 @@ function renderSetupForm() {
     } catch(e) {
       startBtn.disabled = false;
       startBtn.textContent = "Spiel erstellen →";
-      alert("Fehler beim Erstellen: " + e.message + "\n\nPrüfe deine Internetverbindung und ob der JSONBin-Key noch gültig ist.");
+      // error already shown by saveState
     }
   });
 
@@ -1315,8 +1399,13 @@ async function createGame(names) {
     };
   }
 
-  await saveState(stripForSave(gameData));
-  renderHost("urls", gameData);
+  try {
+    await saveState(stripForSave(gameData));
+    showSuccess("Spiel erfolgreich erstellt!");
+    renderHost("urls", gameData);
+  } catch(e) {
+    // error already shown by saveState
+  }
 }
 
 // Hilfsfunktion: fullPool vor dem Speichern entfernen (zu groß für JSONBin)
@@ -1374,12 +1463,15 @@ function renderUrls(gameData) {
   const startBtn = el("button",{class:"btn btn-primary"});
   startBtn.textContent = "Spiel starten";
   startBtn.addEventListener("click", async () => {
-    const current = await loadState();
-    if(!current) return;
-    current.status = "running";
-    await saveState(stripForSave(current));
-    renderHost("running", current);
-    pollHostState();
+    startBtn.disabled = true; startBtn.textContent = "Starte…";
+    try {
+      const current = await loadState();
+      if(!current) { showError("Spielstand nicht gefunden – bitte Seite neu laden."); startBtn.disabled=false; startBtn.textContent="Spiel starten"; return; }
+      current.status = "running";
+      await saveState(stripForSave(current));
+      renderHost("running", current);
+      pollHostState();
+    } catch(e) { startBtn.disabled=false; startBtn.textContent="Spiel starten"; }
   });
   const backBtn = el("button",{class:"btn"});
   backBtn.textContent = "← Zurück";
@@ -1396,9 +1488,11 @@ let hostPollTimer = null;
 function pollHostState() {
   if(hostPollTimer) clearInterval(hostPollTimer);
   hostPollTimer = setInterval(async () => {
-    const data = await loadState();
-    if(!data) return;
-    renderHost("running", data);
+    try {
+      const data = await loadState();
+      if(!data) return;
+      renderHost("running", data);
+    } catch(e) { /* showError already called */ }
   }, 2000);
 }
 
@@ -1434,7 +1528,7 @@ function renderHostRunning(data) {
     const btnRow = el("div",{class:"btn-row"});
     const resetBtn = el("button",{class:"btn btn-primary"});
     resetBtn.textContent = "Neues Spiel";
-    resetBtn.addEventListener("click", async () => { if(hostPollTimer) clearInterval(hostPollTimer); await resetBin(); renderHost("setup"); });
+    resetBtn.addEventListener("click", async () => { if(hostPollTimer) clearInterval(hostPollTimer); try { await resetBin(); } catch(e){} renderHost("setup"); });
     btnRow.appendChild(resetBtn);
     wrap.appendChild(btnRow);
     return wrap;
@@ -1535,8 +1629,9 @@ function renderHostRunning(data) {
   const skipBtn = el("button",{class:"btn btn-danger btn-sm"});
   skipBtn.textContent = "Item überspringen";
   skipBtn.addEventListener("click", async () => {
-    const current = await loadState();
-    if(!current) return;
+    let current;
+    try { current = await loadState(); } catch(e) { return; }
+    if(!current) { showError("Spielstand nicht gefunden."); return; }
     if(current.gameMode === "shared" || !current.gameMode) {
       current.history.unshift({item:current.queue[current.currentIdx].name, player:"–", itemIdx:current.currentIdx, skipped:true});
       if(current.currentIdx >= current.queue.length-1) {
@@ -1572,8 +1667,9 @@ function renderHostRunning(data) {
   stopBtn.textContent = "Spiel beenden";
   stopBtn.addEventListener("click", async () => {
     if(!confirm("Spiel wirklich beenden?")) return;
-    const current = await loadState();
-    if(!current) return;
+    let current;
+    try { current = await loadState(); } catch(e) { return; }
+    if(!current) { showError("Spielstand nicht gefunden."); return; }
     current.status="finished";
     await saveState(stripForSave(current));
     if(hostPollTimer) clearInterval(hostPollTimer);
@@ -1634,7 +1730,9 @@ async function markFoundHost(playerName) {
     } else { ps.currentIdx++; }
   }
 
-  await saveState(stripForSave(data));
+  try {
+    await saveState(stripForSave(data));
+  } catch(e) { return; }
   renderHostRunning(data);
 }
 
@@ -1649,7 +1747,10 @@ function initObs() {
 }
 
 async function renderObs() {
-  const data = await loadState();
+  let data;
+  try {
+    data = await loadState();
+  } catch(e) { return; }
   const inner = document.getElementById("obs-inner");
   if(!inner) return;
 
@@ -1720,7 +1821,13 @@ let lastPlayerItemIdx = -1;
 let foundDisabled = false;
 
 async function renderPlayerView(playerName) {
-  const data = await loadState();
+  let data;
+  try {
+    data = await loadState();
+  } catch(e) {
+    // error already shown by loadState
+    return;
+  }
   const content = document.getElementById("player-content");
   if(!content) return;
 
@@ -1833,14 +1940,18 @@ async function renderPlayerView(playerName) {
   foundBtn.disabled = foundDisabled || alreadyFound;
 
   if(alreadyFound) {
-    const finder = data.history.find(h=>h.itemIdx===data.currentIdx&&!h.skipped);
-    foundBtn.textContent = finder ? `Gefunden von ${finder.player}` : "Bereits gefunden";
+    if(data.gameMode==="shared"||!data.gameMode) {
+      const finder = data.history.find(h=>h.itemIdx===data.currentIdx&&!h.skipped);
+      foundBtn.textContent = finder ? `Gefunden von ${finder.player}` : "Bereits gefunden";
+    } else {
+      foundBtn.textContent = "✓ Queue abgeschlossen";
+    }
     foundBtn.style.opacity="0.5";
   } else if(foundDisabled) {
-    foundBtn.textContent = "Warte auf nächstes Item…";
+    foundBtn.textContent = "Wird gespeichert…";
     foundBtn.style.opacity="0.5";
   } else {
-    foundBtn.textContent = "Gefunden!";
+    foundBtn.textContent = "Gefunden! ✓";
     foundBtn.addEventListener("click", () => handlePlayerFound(playerName));
   }
 
@@ -1854,9 +1965,15 @@ async function handlePlayerFound(playerName) {
   document.querySelectorAll(".btn-found").forEach(b=>{b.disabled=true;b.textContent="Wird gespeichert…";});
 
   const data = await loadState();
-  if(!data||data.status!=="running") return;
+  if(!data) { foundDisabled=false; showError("Keine Verbindung zum Spielserver. Prüfe deine Internetverbindung."); return; }
+  if(data.status!=="running") {
+    foundDisabled=false;
+    if(data.status==="waiting") showError("Das Spiel wurde noch nicht gestartet – warte auf den Host.");
+    else renderPlayerView(playerName);
+    return;
+  }
 
-  // // Race condition check handled per-mode below
+  // Race condition check handled per-mode below
 
   if(data.gameMode === "shared" || !data.gameMode) {
     // Modus 1: shared queue, race condition check
@@ -1871,8 +1988,9 @@ async function handlePlayerFound(playerName) {
 
   } else {
     // Modus 2 + 3: per-player progress
-    const ps = data.playerStates[playerName];
-    if(!ps || ps.finished) { foundDisabled=false; renderPlayerView(playerName); return; }
+    const ps = data.playerStates && data.playerStates[playerName];
+    if(!ps) { foundDisabled=false; showError("Spieler \"" + playerName + "\" nicht im Spiel gefunden. Prüfe ob der Link korrekt ist."); return; }
+    if(ps.finished) { foundDisabled=false; renderPlayerView(playerName); return; }
     const cur = ps.queue[ps.currentIdx];
     data.scores[playerName]=(data.scores[playerName]||0)+1;
     data.history.unshift({item:cur.name, player:playerName, itemIdx:ps.currentIdx});
@@ -1882,7 +2000,13 @@ async function handlePlayerFound(playerName) {
     } else { ps.currentIdx++; }
   }
 
-  await saveState(stripForSave(data));
+  try {
+    await saveState(stripForSave(data));
+  } catch(e) {
+    foundDisabled = false;
+    renderPlayerView(playerName);
+    return;
+  }
   foundDisabled = false;
   renderPlayerView(playerName);
 }
