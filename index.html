@@ -1857,9 +1857,13 @@ async function renderPlayerView(playerName) {
     return;
   }
 
-  // Reset found-button when item changes
-  if(data.currentIdx !== lastPlayerItemIdx) {
-    lastPlayerItemIdx = data.currentIdx;
+  // Reset found-button when item changes (per Spieler-Modus unterschiedlich)
+  const myCurrentIdx = (data.gameMode === "shared" || !data.gameMode)
+    ? data.currentIdx
+    : (data.playerStates && data.playerStates[playerName] ? data.playerStates[playerName].currentIdx : 0);
+
+  if(myCurrentIdx !== lastPlayerItemIdx) {
+    lastPlayerItemIdx = myCurrentIdx;
     foundDisabled = false;
   }
 
@@ -1905,7 +1909,7 @@ async function renderPlayerView(playerName) {
   // Item
   const ic = el("div",{class:"card"});
   const prog = el("div",{class:"progress-text"});
-  prog.textContent = data.endless ? `Runde ${data.round||1} · Item ${data.currentIdx+1}/${data.queue.length}` : `Item ${data.currentIdx+1} von ${data.queue.length}`;
+  prog.textContent = data.endless ? `Runde ${myRound} · Item ${myIdx+1}/${myQueueLen}` : `Item ${myIdx+1} von ${myQueueLen}`;
   ic.appendChild(prog);
 
   const disp = el("div",{class:"item-display"});
